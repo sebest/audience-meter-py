@@ -1,5 +1,6 @@
 import os
 import json
+import gevent
 from string import Template
 from websocket import WebSocketWSGI
 
@@ -32,6 +33,7 @@ class Clients(object):
         except KeyError:
             namespace = {
                 'members': 0,
+                'last_notified_value': 0,
                 'listeners': [],
                 'name': namespace_name,
             }
@@ -92,7 +94,7 @@ class Clients(object):
         self.send(ws, info)
 
     def notify(self):
-        listeners = []
+        listeners = set()
         for namespace in self.namespaces.values():
             if not namespace['listeners'] or namespace['last_notified_value'] == namespace['members']:
                 continue
@@ -100,15 +102,18 @@ class Clients(object):
                 if not hasattr(listener, 'buffer_notif'):
                     listener.buffer_notif = {}
                 listener.buffer_notif[namespace['name']] = namespace['members']
+                listeners.add(listener)
             namespace['last_notified_value'] = namespace['members']
-            listeners += namespace['listeners'] 
-
         for listener in listeners:
             if hasattr(listener, 'buffer_notif'):
-                listener.send(listener.buffer_notif)
+                self.send(listener, listener.buffer_notif)
                 delattr(listener, 'buffer_notif')
+        gevent.spawn_later(1, self.notify)
+
 
 clients = Clients()
+clients.notify()
+
 wsapp = WebSocketWSGI(clients.handle)
 def app(environ, start_response):
     path = environ['PATH_INFO']
