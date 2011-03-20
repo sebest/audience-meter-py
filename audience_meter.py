@@ -10,6 +10,9 @@ class Clients(object):
         self.namespaces = {}
 
     def handle(self, ws):
+        ws.namespace = {}
+        ws.listened = set()
+        ws.notif = {}
         while True:
             m = ws.wait()
             if m is None:
@@ -24,8 +27,16 @@ class Clients(object):
             if namespaces_names:
                 self.listen(ws, namespaces_names)
 
+    def send_notif(self, ws):
+        if ws.notif:
+            self.send(ws, ws.notif)
+            ws.notif = {}
+
     def send(self, ws, data):
-        ws.send(json.dumps(data))
+        try:
+            ws.send(json.dumps(data))
+        except Exception, e:
+            print 'Error %s %s' % (ws, e)
 
     def get_namespace(self, namespace_name):
         try:
@@ -34,7 +45,7 @@ class Clients(object):
             namespace = {
                 'members': 0,
                 'last_notified_value': 0,
-                'listeners': [],
+                'listeners': set(),
                 'name': namespace_name,
             }
             self.namespaces[namespace_name] = namespace
@@ -46,20 +57,16 @@ class Clients(object):
             del self.namespaces[namespace['name']]
 
     def leave(self, ws):
-        if hasattr(ws, 'namespace'):
+        if ws.namespace:
             ws.namespace['members'] -= 1
             self.clean_namespace(ws.namespace)
-            delattr(ws, 'namespace')
+            ws.namespace = None
 
     def unlisten(self, ws):
-        if hasattr(ws, 'listened'):
-            for namespace in ws.listened:
-                try:
-                    namespace['listeners'].remove(ws)
-                except ValueError:
-                    continue
-                self.clean_namespace(namespace)
-            delattr(ws, 'listened')
+        for namespace_name in ws.listened:
+            self.namespaces[namespace_name]['listeners'].remove(ws)
+            self.clean_namespace(namespace)
+        ws.listened = set()
 
     def stats(self):
         return dict([(namespace['name'], namespace['members']) for namespace in self.namespaces.values()])
@@ -76,38 +83,32 @@ class Clients(object):
 
     def join(self, ws, namespace_name):
         namespace = self.get_namespace(namespace_name)
-        if namespace and hasattr(ws, 'namespace'):
-            if ws.namespace == namespace:
-                return
-            self.leave(ws)
+        if ws.namespace == namespace:
+            return
+        self.leave(ws)
         namespace['members'] += 1
         ws.namespace = namespace
 
     def listen(self, ws, namespaces_names):
         self.unlisten(ws)
-        ws.listeners = []
-        info = {}
         for namespace_name in namespaces_names:
             namespace = self.get_namespace(namespace_name)
-            namespace['listeners'].append(ws)
-            info[namespace_name] = namespace['members']
-        self.send(ws, info)
+            namespace['listeners'].add(ws)
+            ws.listened.add(namespace_name)
+            ws.notif[namespace_name] = namespace['members']
+        self.send_notif(ws)
 
     def notify(self):
         listeners = set()
         for namespace in self.namespaces.values():
             if not namespace['listeners'] or namespace['last_notified_value'] == namespace['members']:
                 continue
-            for listener in namespace['listeners']:
-                if not hasattr(listener, 'buffer_notif'):
-                    listener.buffer_notif = {}
-                listener.buffer_notif[namespace['name']] = namespace['members']
-                listeners.add(listener)
+            for ws in namespace['listeners']:
+                ws.notif[namespace['name']] = namespace['members']
+                listeners.add(ws)
             namespace['last_notified_value'] = namespace['members']
-        for listener in listeners:
-            if hasattr(listener, 'buffer_notif'):
-                self.send(listener, listener.buffer_notif)
-                delattr(listener, 'buffer_notif')
+        for ws in listeners:
+            self.send_notif(ws)
         gevent.spawn_later(1, self.notify)
 
 
