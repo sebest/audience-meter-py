@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.4.2/jquery.min.js"></script>
+  <script src="https://github.com/douglascrockford/JSON-js/raw/master/json2.js"></script>
+  <script src="http://cdn.socket.io/stable/socket.io.js"></script>
+  <script>WEB_SOCKET_SWF_LOCATION = 'http://cdn.socket.io/stable/WebSocketMain.swf';</script>
+</head>
+<body>
+Connected users to {{pathname}}: <span id="total">-</span>
+<script>
+var socket = new io.Socket("{{hostname}}");
+socket.connect();
+socket.on("connect", function()
+{
+    socket.send(JSON.stringify
+    ({
+        join: "{{pathname}}",
+        listen: ["{{pathname}}"]
+    }));
+});
+socket.on("message", function(data)
+{
+    var m = JSON.parse(data);
+    document.getElementById("total").innerHTML = m["{{pathname}}"];
+});
+</script>
+</html>
