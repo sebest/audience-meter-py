@@ -1,0 +1,25 @@
+<html>
+<head>
+<script src="http://ajax.googleapis.com/ajax/libs/jquery/1.4.1/jquery.min.js"></script>
+<script src="https://github.com/douglascrockford/JSON-js/raw/master/json2.js"></script>
+</head>
+<body>
+Connected users to $pathname: <span id="total">-</span>
+<script>
+var s = new WebSocket("ws://$hostname/data.json");
+
+s.onopen = function() { 
+    s.send(JSON.stringify({
+        join: "$pathname",
+        listen: ["$pathname"]
+    }));
+};
+
+s.onmessage = function(e) {
+	var data = JSON.parse(e.data);
+    document.getElementById("total").innerHTML = data["$pathname"];
+};
+
+</script>
+<body>
+</html>
