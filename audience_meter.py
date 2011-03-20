@@ -4,6 +4,28 @@ import gevent
 from string import Template
 from websocket import WebSocketWSGI
 
+
+CMD_MAX_NAMESPACE_LEN = 50
+CMD_MAX_NAMESPACE_LISTEN = 20
+NOTIFY_INTERVAL = 0.5 # seconds
+
+class ClientError(Exception): pass
+
+def check_namespace_name(namespace_name):
+    if not isinstance(namespace_name, unicode):
+        raise ClientError('Invalid namespace value: must be a tring')
+    if len(namespace_name) > CMD_MAX_NAMESPACE_LEN:
+        raise ClientError('Maximum length for namespace is %d' % CMD_MAX_NAMESPACE_LEN)
+
+def check_namespaces_names(namespaces_names):
+    if not isinstance(namespaces_names, list):
+        raise ClientError('Invalid listen value: must be an array')
+    if len(namespaces_names) > CMD_MAX_NAMESPACE_LISTEN:
+        raise ClientError('Maximum listenable namespaces is %d' % CMD_MAX_NAMESPACE_LISTEN)
+
+    for namespace_name in namespaces_names:
+        check_namespace_name(namespace_name)
+
 class Clients(object):
 
     def __init__(self):
@@ -16,16 +38,26 @@ class Clients(object):
         while True:
             m = ws.wait()
             if m is None:
+                # disconnected
                 self.remove(ws)
                 return
 
-            command = json.loads(m)
-            namespace_name = command.get('join')
-            if namespace_name:
-                self.join(ws, namespace_name)
-            namespaces_names = command.get('listen')
-            if namespaces_names:
-                self.listen(ws, namespaces_names)
+            try:
+                try:
+                    command = json.loads(m)
+                except (ValueError, TypeError), e:
+                    raise ClientError('Invalid JSON command')
+
+                namespace_name = command.get('join')
+                if namespace_name:
+                    self.join(ws, namespace_name)
+                namespaces_names = command.get('listen')
+                if namespaces_names:
+                    self.listen(ws, namespaces_names)
+            except ClientError, e:
+                return self.send(ws, {'err': str(e)})
+            except Exception, e:
+                return self.send(ws, {'err': 'internal error: %s' % e})
 
     def send_notif(self, ws):
         if ws.notif:
@@ -64,7 +96,8 @@ class Clients(object):
 
     def unlisten(self, ws):
         for namespace_name in ws.listened:
-            self.namespaces[namespace_name]['listeners'].remove(ws)
+            namespace = self.namespaces[namespace_name]
+            namespace['listeners'].remove(ws)
             self.clean_namespace(namespace)
         ws.listened = set()
 
@@ -82,6 +115,8 @@ class Clients(object):
         self.unlisten(ws)
 
     def join(self, ws, namespace_name):
+        check_namespace_name(namespace_name)
+
         namespace = self.get_namespace(namespace_name)
         if ws.namespace == namespace:
             return
@@ -90,6 +125,8 @@ class Clients(object):
         ws.namespace = namespace
 
     def listen(self, ws, namespaces_names):
+        check_namespaces_names(namespaces_names)
+
         self.unlisten(ws)
         for namespace_name in namespaces_names:
             namespace = self.get_namespace(namespace_name)
@@ -109,7 +146,7 @@ class Clients(object):
             namespace['last_notified_value'] = namespace['members']
         for ws in listeners:
             self.send_notif(ws)
-        gevent.spawn_later(1, self.notify)
+        gevent.spawn_later(NOTIFY_INTERVAL, self.notify)
 
 
 clients = Clients()

@@ -17,6 +17,7 @@ s.onopen = function() {
 
 s.onmessage = function(e) {
 	var data = JSON.parse(e.data);
+	console.log(e.data);
     document.getElementById("total").innerHTML = data["$pathname"];
 };
 
