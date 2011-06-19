@@ -94,7 +94,7 @@ class ClientsConnection(tornadio.SocketConnection):
             del self.namespaces[namespace['name']]
 
     def leave(self, ws):
-        if ws.namespace:
+        if hasattr(ws, 'namespace') and ws.namespace:
             ws.namespace['members'] -= 1
             self.clean_namespace(ws.namespace)
             ws.namespace = None
@@ -138,7 +138,8 @@ class ClientsConnection(tornadio.SocketConnection):
             namespace['listeners'].add(ws)
             ws.listened.add(namespace_name)
             ws.notif[namespace_name] = namespace['members']
-        self._send_notif(ws)
+        # only rely on notify()?
+        #self._send_notif(ws)
 
     @staticmethod
     def notify():
