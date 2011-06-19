@@ -155,21 +155,14 @@ class ClientsConnection(tornadio.SocketConnection):
 
 PeriodicCallback(ClientsConnection.notify, NOTIFY_INTERVAL).start()
 
-#use the routes classmethod to build the correct resource
 ClientsRouter = tornadio.get_router(ClientsConnection)
 
 #configure the Tornado application
 application = tornado.web.Application(
     [(r"/ns/(.*)", IndexHandler), ClientsRouter.route()],
-    enabled_protocols = [
-        'websocket',
-        'flashsocket',
-        'xhr-multipart',
-        'xhr-polling',
-        ],
-    flash_policy_port = 843,
     flash_policy_file = op.join(ROOT, 'flashpolicy.xml'),
-    socket_io_port = 80
+    flash_policy_port = 843,
+    socket_io_port = 80,
 )
 
 if __name__ == "__main__":
