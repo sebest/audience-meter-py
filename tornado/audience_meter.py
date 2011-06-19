@@ -2,6 +2,7 @@ from os import path as op
 
 import json
 import tornado.web
+from tornado.ioloop import PeriodicCallback
 import tornadio
 import tornadio.router
 import tornadio.server
@@ -10,13 +11,13 @@ ROOT = op.normpath(op.dirname(__file__))
 
 CMD_MAX_NAMESPACE_LEN = 50
 CMD_MAX_NAMESPACE_LISTEN = 20
-NOTIFY_INTERVAL = 0.5 # seconds
+NOTIFY_INTERVAL = 1000 # milliseconds
 
 
 class IndexHandler(tornado.web.RequestHandler):
     """Regular HTTP handler to serve the chatroom page"""
     def get(self, pathname):
-        self.render("index.html", hostname='127.0.0.1', pathname='/%s' % pathname)
+        self.render("index.html")
 
 class ClientError(Exception): pass
 
@@ -38,9 +39,6 @@ def check_namespaces_names(namespaces_names):
 class ClientsConnection(tornadio.SocketConnection):
 
     namespaces = {}
-
-    def on_open(self, *args, **kwargs):
-        print 'new client %s' % self
 
     def on_message(self, m):
         self.namespace = {}
@@ -64,23 +62,18 @@ class ClientsConnection(tornadio.SocketConnection):
         except Exception, e:
             return self._send(self, {'err': 'internal error: %s' % e})
 
-        self.notify() # TODO use a periodic callback
-
     def on_close(self):
-        print 'client %s gone' % self
         self.remove(self)
-        self.notify() # TODO use a periodic callback
 
-    def send_notif(self, ws):
+    @staticmethod
+    def _send_notif(ws):
         if ws.notif:
-            self._send(ws, ws.notif)
+            ClientsConnection._send(ws, ws.notif)
             ws.notif = {}
 
-    def _send(self, ws, data):
-        try:
-            ws.send(json.dumps(data))
-        except Exception, e:
-            print 'Error %s %s' % (ws, e)
+    @staticmethod
+    def _send(ws, data):
+        ws.send(json.dumps(data))
 
     def get_namespace(self, namespace_name):
         try:
@@ -145,11 +138,12 @@ class ClientsConnection(tornadio.SocketConnection):
             namespace['listeners'].add(ws)
             ws.listened.add(namespace_name)
             ws.notif[namespace_name] = namespace['members']
-        self.send_notif(ws)
+        self._send_notif(ws)
 
-    def notify(self):
+    @staticmethod
+    def notify():
         listeners = set()
-        for namespace in self.namespaces.values():
+        for namespace in ClientsConnection.namespaces.values():
             if not namespace['listeners'] or namespace['last_notified_value'] == namespace['members']:
                 continue
             for ws in namespace['listeners']:
@@ -157,9 +151,9 @@ class ClientsConnection(tornadio.SocketConnection):
                 listeners.add(ws)
             namespace['last_notified_value'] = namespace['members']
         for ws in listeners:
-            self.send_notif(ws)
-        #gevent.spawn_later(NOTIFY_INTERVAL, self.notify)
+            ClientsConnection._send_notif(ws)
 
+PeriodicCallback(ClientsConnection.notify, NOTIFY_INTERVAL).start()
 
 #use the routes classmethod to build the correct resource
 ClientsRouter = tornadio.get_router(ClientsConnection)
@@ -167,13 +161,15 @@ ClientsRouter = tornadio.get_router(ClientsConnection)
 #configure the Tornado application
 application = tornado.web.Application(
     [(r"/ns/(.*)", IndexHandler), ClientsRouter.route()],
-    enabled_protocols = ['websocket',
-                         'flashsocket',
-                         'xhr-multipart',
-                         'xhr-polling'],
+    enabled_protocols = [
+        'websocket',
+        'flashsocket',
+        'xhr-multipart',
+        'xhr-polling',
+        ],
     flash_policy_port = 843,
     flash_policy_file = op.join(ROOT, 'flashpolicy.xml'),
-    socket_io_port = 8001
+    socket_io_port = 80
 )
 
 if __name__ == "__main__":

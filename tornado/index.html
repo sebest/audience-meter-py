@@ -7,22 +7,22 @@
   <script>WEB_SOCKET_SWF_LOCATION = 'http://cdn.socket.io/stable/WebSocketMain.swf';</script>
 </head>
 <body>
-Connected users to {{pathname}}: <span id="total">-</span>
+Connected users to {{ request.path }}: <span id="total">-</span>
 <script>
-var socket = new io.Socket("{{hostname}}");
+var socket = new io.Socket("{{ request.host }}", {rememberTransport: false});
 socket.connect();
 socket.on("connect", function()
 {
     socket.send(JSON.stringify
     ({
-        join: "{{pathname}}",
-        listen: ["{{pathname}}"]
+        join: "{{ request.path }}",
+        listen: ["{{ request.path }}"]
     }));
 });
 socket.on("message", function(data)
 {
     var m = JSON.parse(data);
-    document.getElementById("total").innerHTML = m["{{pathname}}"];
+    document.getElementById("total").innerHTML = m["{{ request.path }}"];
 });
 </script>
 </html>
